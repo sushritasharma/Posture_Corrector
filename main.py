@@ -6,6 +6,7 @@ from playsound import playsound
 import os
 
 
+# initialise mediapipe pose and webcam
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 pose = mp_pose.Pose(static_image_mode = False, min_detection_confidence=0.5, min_tracking_confidence = 0.5)
@@ -14,6 +15,9 @@ cap = cv2.VideoCapture(0)
 import math
 
 def calculate_angle(point1, point2, point3):
+    """
+    Calculate the angle between three points.
+    """
     a = np.array(point1)
     b = np.array(point2)
     c = np.array(point3)
@@ -27,6 +31,9 @@ def calculate_angle(point1, point2, point3):
     return np.degrees(angle)
 
 def draw_angle(image, point1, point2, point3, angle, color):
+    """
+    Draw the angle on the image.
+    """
     cv2.line(image, point1, point2, color, 2)
     cv2.line(image, point2, point3, color, 2)
     cv2.putText(image, f"{int(angle)}", 
@@ -37,6 +44,7 @@ is_calibrated = False
 calibration_frames = 0
 calibration_shoulder_angles = []
 calibration_neck_angles = []
+calibration_slouch_angles = []
 last_alert_time = 0
 alert_cooldown = 10
 
@@ -58,12 +66,22 @@ while cap.isOpened():
         right_ear = (int(landmarks[mp_pose.PoseLandmark.RIGHT_EAR.value].x * frame.shape[1]),
                      int(landmarks[mp_pose.PoseLandmark.RIGHT_EAR.value].y * frame.shape[0]))
         
+        nose = right_ear = (int(landmarks[mp_pose.PoseLandmark.NOSE.value].x * frame.shape[1]),
+                     int(landmarks[mp_pose.PoseLandmark.NOSE.value].y * frame.shape[0]))
+        
+       
+        
+        
         shoulder_angle = calculate_angle(left_shoulder, right_shoulder, (right_shoulder[0],0))
         neck_angle = calculate_angle(left_ear, left_shoulder, (left_shoulder[0], 0))
+        slouch_angle = calculate_angle(left_shoulder, right_shoulder, nose)
+        
 
         if not is_calibrated and calibration_frames < 30:
             calibration_shoulder_angles.append(shoulder_angle)
             calibration_neck_angles.append(neck_angle)
+            calibration_slouch_angles.append(slouch_angle)
+            
             calibration_frames +=1
             cv2.putText(frame, f"Calibrating...{calibration_frames}/30", (10, 30), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
@@ -72,17 +90,22 @@ while cap.isOpened():
         elif not is_calibrated:
             shoulder_threshold = np.mean(calibration_shoulder_angles) - 10
             neck_threshold = np.mean(calibration_neck_angles) - 10
+            slouch_threshold = np.mean(calibration_slouch_angles) - 10
+           
             is_calibrated = True
-            print(f"Calibration complete. Shoulder threshold: {shoulder_threshold:.1f}, Neck threshold: {neck_threshold:.1f}")
+            #
+            print(f"Calibration complete. Shoulder threshold: {shoulder_threshold:.1f}, Neck threshold: {neck_threshold:.1f}, Slouch threshold: {slouch_threshold: .1f}")
 
         mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
         midpoint = ((left_shoulder[0] + right_shoulder[0]) // 2, (left_shoulder[1] + right_shoulder[1]) // 2)
         draw_angle(frame, left_shoulder, midpoint, (midpoint[0], 0), shoulder_angle, (255, 0, 0))
         draw_angle(frame, left_ear, left_shoulder, (left_shoulder[0], 0), neck_angle, (0, 255, 0))
+        draw_angle(frame, left_shoulder, right_shoulder, nose, slouch_angle, (0, 0, 255))
+
 
         if is_calibrated:
             current_time = time.time()
-            if shoulder_angle < shoulder_threshold or neck_angle < neck_threshold:
+            if shoulder_angle < shoulder_threshold or neck_angle < neck_threshold or slouch_angle < slouch_threshold:
                 status = "Poor posture"
                 color = (0,0,255)
                 if current_time - last_alert_time > alert_cooldown:
@@ -98,6 +121,9 @@ while cap.isOpened():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.putText(frame, f"Neck Angle: {neck_angle:.1f}/{neck_threshold:.1f}", (10, 90), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(frame, f"Neck Angle: {slouch_angle:.1f}/{slouch_threshold:.1f}", (10, 90), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+            
             
             cv2.imshow('Posture Corrector', frame)
 
